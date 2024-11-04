@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+    <style>
+        #pdf-viewer {
+            height: 800px;
+            width: 50%;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            position: relative;
+        }
+        .pdf-page {
+            margin: 10px 0;
+            display: flex;
+            justify-content: center;
+        }
+        #page-controls {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="pdf-viewer"></div>
+<div id="page-controls">
+    <span id="page-info">Page: <span id="current-page">1</span> / <span id="total-pages">0</span></span>
+    <br>
+    <input type="number" id="page-number" placeholder="Go to page" min="1">
+    <button onclick="goToPage()">Go</button>
+<!--    <input type="text" id="keyword" placeholder="Enter keyword to highlight">-->
+<!--    <button onclick="highlightKeyword()">Highlight</button>-->
+</div>
+
+<script>
+    const url = 'http://127.0.0.1:8081/download'; // PDF 文件 URL
+    const pdfViewer = document.getElementById('pdf-viewer');
+    const pageNumberInput = document.getElementById('page-number');
+    const currentPageSpan = document.getElementById('current-page');
+    const totalPagesSpan = document.getElementById('total-pages');
+    let pdfDoc = null;
+    let currentPage = 1;
+    let keyword = "";
+
+    // PDF.js 相关设置
+    const pdfjsLib = window['pdfjs-dist/build/pdf'];
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
+
+    // 加载 PDF 文档
+    async function loadPDF(url) {
+        const loadingTask = pdfjsLib.getDocument(url);
+        pdfDoc = await loadingTask.promise;
+        totalPagesSpan.textContent = pdfDoc.numPages; // 设置总页数
+        renderPages();
+    }
+
+    // 渲染所有页面
+    async function renderPages() {
+        pdfViewer.innerHTML = '';  // 清空现有内容
+        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+            await renderPage(pageNum);
+        }
+        updateCurrentPage();  // 更新页码显示
+    }
+
+    // 渲染指定页面
+    async function renderPage(pageNum) {
+        const page = await pdfDoc.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1.5 });
+
+        const pageDiv = document.createElement('div');
+        pageDiv.className = 'pdf-page';
+        pageDiv.style.width = viewport.width + 'px';
+        pageDiv.style.height = viewport.height + 'px';
+        pageDiv.dataset.pageNum = pageNum;  // 设置页码属性
+        pdfViewer.appendChild(pageDiv);
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        pageDiv.appendChild(canvas);
+
+        const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+        };
+        await page.render(renderContext).promise;
+        // 高亮关键词
+        if (keyword) {
+            highlightText(page, context, viewport);
+        }
+    }
+
+    // 跳转到指定页
+    async function goToPage() {
+        const pageNum = parseInt(pageNumberInput.value);
+        if (pageNum > 0 && pageNum <= pdfDoc.numPages) {
+            currentPage = pageNum;
+            const targetPage = document.querySelector(`.pdf-page:nth-child(${pageNum})`);
+            targetPage.scrollIntoView({ behavior: 'smooth' });
+            updateCurrentPage();
+        } else {
+            alert('Invalid page number');
+        }
+    }
+
+    // 更新当前页码信息
+    function updateCurrentPage() {
+        const pages = document.querySelectorAll('.pdf-page');
+        const viewerTop = pdfViewer.scrollTop;
+        const viewerBottom = viewerTop + pdfViewer.clientHeight;
+
+        pages.forEach(page => {
+            const pageTop = page.offsetTop;
+            const pageBottom = pageTop + page.clientHeight;
+
+            if (pageTop < viewerBottom && pageBottom > viewerTop) {
+                currentPage = parseInt(page.dataset.pageNum);
+                currentPageSpan.textContent = currentPage;  // 更新当前页码显示
+            }
+        });
+    }
+
+    // 监听滚动事件更新当前页码
+    pdfViewer.addEventListener('scroll', updateCurrentPage);
+
+    // 高亮指定关键词
+    async function highlightText(page, context, viewport) {
+        const textContent = await page.getTextContent();
+        textContent.items.forEach(item => {
+            const { str, transform, width } = item;
+
+            if (str.includes(keyword)) {
+                const scale = viewport.scale;
+                const x = transform[4];
+                const y = transform[5];
+                const highlightWidth = width * scale;
+                const highlightHeight = 10;
+
+                context.fillStyle = 'yellow';
+                context.globalAlpha = 0.5;
+                context.fillRect(x, viewport.height - y, highlightWidth, highlightHeight);
+                context.globalAlpha = 1;
+            }
+        });
+    }
+
+    function highlightKeyword() {
+        keyword = document.getElementById('keyword').value.trim();
+        renderPages();
+    }
+
+    // 加载 PDF 文件
+    loadPDF(url);
+</script>
+
+</body>
+</html>
